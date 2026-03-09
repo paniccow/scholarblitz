@@ -1,5 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import { seedQuestions } from '../src/lib/questions/seed-data';
+import { scienceQuestions } from '../src/lib/questions/science-questions';
+import { historyQuestions } from '../src/lib/questions/history-questions';
+import { literatureQuestions } from '../src/lib/questions/literature-questions';
+import { fineArtsQuestions } from '../src/lib/questions/finearts-questions';
+import { geographyQuestions } from '../src/lib/questions/geography-questions';
+import { mathQuestions } from '../src/lib/questions/math-questions';
+import { popCultureQuestions } from '../src/lib/questions/popculture-questions';
+import { sportsQuestions } from '../src/lib/questions/sports-questions';
+import { mythologyQuestions } from '../src/lib/questions/mythology-questions';
+import { philosophyQuestions } from '../src/lib/questions/philosophy-questions';
+import { socialScienceQuestions } from '../src/lib/questions/socialscience-questions';
+import { religionQuestions } from '../src/lib/questions/religion-questions';
+import { generalQuestions } from '../src/lib/questions/general-questions';
 
 // Load env from .env.local
 import { config } from 'dotenv';
@@ -368,21 +381,42 @@ async function main() {
   console.log('🚀 ScholarBlitz Question Seeder');
   console.log('================================\n');
 
-  // Step 1: Insert seed questions
-  console.log('📚 Step 1: Inserting seed questions...');
-  const seedData = seedQuestions.map((q, i) => ({
+  // Step 1: Insert all hardcoded questions
+  console.log('📚 Step 1: Inserting hardcoded questions...');
+
+  // Combine all question arrays
+  const allHardcoded = [
+    ...seedQuestions,
+    ...(scienceQuestions || []),
+    ...(historyQuestions || []),
+    ...(literatureQuestions || []),
+    ...(fineArtsQuestions || []),
+    ...(geographyQuestions || []),
+    ...(mathQuestions || []),
+    ...(popCultureQuestions || []),
+    ...(sportsQuestions || []),
+    ...(mythologyQuestions || []),
+    ...(philosophyQuestions || []),
+    ...(socialScienceQuestions || []),
+    ...(religionQuestions || []),
+    ...(generalQuestions || []),
+  ];
+
+  console.log(`  Found ${allHardcoded.length} hardcoded questions across all categories`);
+
+  const seedData = allHardcoded.map((q, i) => ({
     source: 'seed' as const,
-    source_id: `seed_${i}`,
+    source_id: `seed_${q.category.toLowerCase().replace(/\s+/g, '_')}_${i}`,
     category: q.category,
     subcategory: undefined,
     difficulty: q.difficulty,
     question_text: q.question_text,
     answer: q.answer,
-    answer_aliases: q.answer_aliases,
+    answer_aliases: q.answer_aliases || [],
     metadata: {},
   }));
   const seedCount = await insertQuestions(seedData);
-  console.log(`  ✅ Inserted ${seedCount} seed questions\n`);
+  console.log(`  ✅ Inserted ${seedCount} hardcoded questions\n`);
 
   // Step 2: Fetch from QB Reader
   console.log('📖 Step 2: Fetching from QB Reader API...');
@@ -402,7 +436,7 @@ async function main() {
   const total = seedCount + qbCount + otdbCount;
   console.log('================================');
   console.log(`🎉 Total questions seeded: ${total}`);
-  console.log(`   - Seed data: ${seedCount}`);
+  console.log(`   - Hardcoded: ${seedCount}`);
   console.log(`   - QB Reader: ${qbCount}`);
   console.log(`   - Open Trivia DB: ${otdbCount}`);
   console.log('================================\n');
