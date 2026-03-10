@@ -37,6 +37,7 @@ function SoloGamePage() {
   const [error, setError] = useState<string | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
   const [revealedWords, setRevealedWords] = useState(0);
+  const [hideText, setHideText] = useState(false);
 
   const game = useGameState({
     timePerQuestion: session?.time_per_question ?? 15,
@@ -86,26 +87,33 @@ function SoloGamePage() {
     }
   }, [questions, game]);
 
-  // Progressive reveal effect
+  // Reset revealed words on new question
   useEffect(() => {
+    if (game.state === 'reading') setRevealedWords(0);
+  }, [game.currentQuestionIndex, game.state]);
+
+  // When TTS is on, sync reveal to spoken word index
+  useEffect(() => {
+    if (session?.tts_enabled && tts.currentWordIndex >= 0) {
+      setRevealedWords(tts.currentWordIndex + 1);
+    }
+  }, [tts.currentWordIndex, session?.tts_enabled]);
+
+  // When TTS is off, reveal at fixed speed (~4 words/sec)
+  useEffect(() => {
+    if (session?.tts_enabled) return;
     if (game.state !== 'reading' || !game.currentQuestion) return;
 
-    const words = game.currentQuestion.question_text.split(/\s+/).length;
-    const interval = ((session?.time_per_question ?? 15) * 1000) / words;
-
+    const totalWords = game.currentQuestion.question_text.split(/\s+/).length;
     setRevealedWords(0);
     let count = 0;
-
     const timer = setInterval(() => {
       count += 1;
       setRevealedWords(count);
-      if (count >= words) {
-        clearInterval(timer);
-      }
-    }, interval);
-
+      if (count >= totalWords) clearInterval(timer);
+    }, 250);
     return () => clearInterval(timer);
-  }, [game.state, game.currentQuestion, game.currentQuestionIndex, session?.time_per_question]);
+  }, [game.state, game.currentQuestionIndex, session?.tts_enabled]);
 
   // TTS auto-read
   useEffect(() => {
@@ -269,6 +277,21 @@ function SoloGamePage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Hide text toggle */}
+          <button
+            type="button"
+            onClick={() => setHideText(!hideText)}
+            className={`p-2 rounded-lg transition-colors ${hideText ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+            title={hideText ? 'Show text' : 'Hide text'}
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {hideText ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              )}
+            </svg>
+          </button>
           {/* TTS Controls */}
           {session?.tts_enabled && (
             <div className="flex items-center gap-2">
@@ -330,6 +353,7 @@ function SoloGamePage() {
           category={game.currentQuestion.category}
           questionNumber={game.currentQuestionIndex + 1}
           totalQuestions={game.totalQuestions}
+          hidden={hideText}
         />
       )}
 
