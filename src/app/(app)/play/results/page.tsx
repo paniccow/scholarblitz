@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,7 +15,15 @@ interface ResultData {
   players: GamePlayer[];
 }
 
-export default function ResultsPage() {
+export default function ResultsPageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Spinner size="lg" /></div>}>
+      <ResultsPage />
+    </Suspense>
+  );
+}
+
+function ResultsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session');

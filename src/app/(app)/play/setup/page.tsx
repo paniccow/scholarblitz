@@ -1,14 +1,23 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CategoryPicker } from '@/components/game/CategoryPicker';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Spinner } from '@/components/ui/Spinner';
 import { DEFAULT_QUESTION_COUNT, DEFAULT_TIME_PER_QUESTION } from '@/lib/constants';
 
-export default function GameSetupPage() {
+export default function GameSetupPageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Spinner size="lg" /></div>}>
+      <GameSetupPage />
+    </Suspense>
+  );
+}
+
+function GameSetupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const defaultMode = searchParams.get('mode') === 'multiplayer' ? 'multiplayer' : 'solo';
