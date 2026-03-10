@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       ttsEnabled: boolean;
     } = body;
 
-    if (!mode || !categories?.length || !questionCount || !timePerQuestion) {
+    if (!mode || !categories?.length || !questionCount || timePerQuestion === undefined || timePerQuestion === null) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
