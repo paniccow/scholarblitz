@@ -27,7 +27,7 @@ export function useGameState(options: UseGameStateOptions = {}) {
   const currentQuestion = questions[currentQuestionIndex] ?? null;
 
   const startGame = useCallback(
-    (questionList: Question[]) => {
+    (questionList: Question[], startedAt?: number) => {
       if (questionList.length === 0) return;
 
       setQuestions(questionList);
@@ -37,7 +37,10 @@ export function useGameState(options: UseGameStateOptions = {}) {
       setLastCorrect(null);
       setState('reading');
       if (timePerQuestion > 0) {
-        timer.reset(timePerQuestion);
+        const remaining = startedAt
+          ? Math.max(1, timePerQuestion - Math.floor((Date.now() - startedAt) / 1000))
+          : timePerQuestion;
+        timer.reset(remaining);
         timer.start();
       }
     },
@@ -142,7 +145,7 @@ export function useGameState(options: UseGameStateOptions = {}) {
     setState('revealed');
   }, [state]);
 
-  const nextQuestion = useCallback(() => {
+  const nextQuestion = useCallback((startedAt?: number) => {
     if (state !== 'answered' && state !== 'revealed' && state !== 'reading') return;
 
     const nextIndex = currentQuestionIndex + 1;
@@ -157,7 +160,10 @@ export function useGameState(options: UseGameStateOptions = {}) {
     setLastCorrect(null);
     setState('reading');
     if (timePerQuestion > 0) {
-      timer.reset(timePerQuestion);
+      const remaining = startedAt
+        ? Math.max(1, timePerQuestion - Math.floor((Date.now() - startedAt) / 1000))
+        : timePerQuestion;
+      timer.reset(remaining);
       timer.start();
     }
   }, [state, currentQuestionIndex, questions.length, timer, timePerQuestion]);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, use } from 'react';
+import React, { useEffect, useState, useCallback, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useGameState } from '@/hooks/useGameState';
@@ -48,6 +48,13 @@ export default function MultiplayerGamePage({
     timePerQuestion: session?.time_per_question ?? 15,
   });
 
+  // Stable ref so event handlers registered once always call the latest game methods
+  const gameRef = useRef(game);
+  gameRef.current = game;
+
+  // Pre-loaded questions stored in ref so game_start handler doesn't need async fetch
+  const questionsRef = useRef<Question[]>([]);
+
   const isActivePlaying = phase === 'playing' && game.state !== 'idle' && game.state !== 'finished';
   const { isPaywalled } = useUsageTracker(isActivePlaying);
 
@@ -69,8 +76,11 @@ export default function MultiplayerGamePage({
         const typedSession = sessionData as GameSession;
         setSession(typedSession);
         setIsHost(typedSession.host_id === user.id);
+        // Pre-load questions into ref regardless of status — ready for game_start
+        const qs = questionData as Question[];
+        questionsRef.current = qs;
         if (typedSession.status === 'active') {
-          setQuestions(questionData as Question[]);
+          setQuestions(qs);
           setPhase('playing');
         } else if (typedSession.status === 'finished') {
           setPhase('finished');
@@ -111,47 +121,36 @@ export default function MultiplayerGamePage({
     });
   }, [user, profile, isHost]);
 
-  const loadQuestions = useCallback(async (sessionId: string) => {
-    const res = await fetch(`/api/game/session?id=${sessionId}`);
-    if (res.ok) {
-      const { questions: questionData } = await res.json();
-      setQuestions(questionData as Question[]);
-    }
-  }, []);
 
-  // Listen for game events
+  // Listen for game events — registered once, use refs to always call latest methods
   useEffect(() => {
-    const unsubs: (() => void)[] = [];
-
-    unsubs.push(realtime.onEvent('game_start', async (payload) => {
-      await loadQuestions(payload.sessionId as string);
-      setPhase('playing');
-    }));
-
-    // Answer: first correct answer wins
-    unsubs.push(realtime.onEvent('answer', (payload) => {
-      game.openAnswer(
-        payload.answer as string,
-        payload.userId as string,
-        payload.displayName as string,
-      );
-    }));
-
-    // Reveal: timer ran out, show answer without points
-    unsubs.push(realtime.onEvent('reveal', () => {
-      game.revealTimeUp();
-    }));
-
-    unsubs.push(realtime.onEvent('next', () => {
-      game.nextQuestion();
-    }));
-
-    unsubs.push(realtime.onEvent('game_end', () => {
-      setPhase('finished');
-    }));
-
+    const unsubs = [
+      realtime.onEvent('game_start', (payload) => {
+        // Questions already pre-loaded in questionsRef at lobby time — no network delay
+        gameRef.current.startGame(questionsRef.current, payload.startedAt as number);
+        setQuestions(questionsRef.current);
+        setPhase('playing');
+      }),
+      realtime.onEvent('answer', (payload) => {
+        gameRef.current.openAnswer(
+          payload.answer as string,
+          payload.userId as string,
+          payload.displayName as string,
+        );
+      }),
+      realtime.onEvent('reveal', () => {
+        gameRef.current.revealTimeUp();
+      }),
+      realtime.onEvent('next', (payload) => {
+        gameRef.current.nextQuestion(payload.startedAt as number);
+      }),
+      realtime.onEvent('game_end', () => {
+        setPhase('finished');
+      }),
+    ];
     return () => unsubs.forEach((u) => u());
-  }, [realtime, game, loadQuestions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Start game when questions loaded
   useEffect(() => {
@@ -206,10 +205,13 @@ export default function MultiplayerGamePage({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: session.id, action: 'start' }),
     });
-    realtime.broadcast('game_start', { sessionId: session.id });
-    await loadQuestions(session.id);
+    const startedAt = Date.now();
+    realtime.broadcast('game_start', { sessionId: session.id, startedAt });
+    // Host starts immediately with the same timestamp
+    game.startGame(questionsRef.current, startedAt);
+    setQuestions(questionsRef.current);
     setPhase('playing');
-  }, [session, user, realtime, loadQuestions]);
+  }, [session, user, realtime, game]);
 
   // Reset guess lock on each new question
   useEffect(() => {
@@ -237,10 +239,11 @@ export default function MultiplayerGamePage({
     game.revealTimeUp();
   }, [realtime, game]);
 
-  // Host advances to next question — call locally + broadcast to non-hosts
+  // Host advances to next question — call locally + broadcast with timestamp
   const handleNext = useCallback(() => {
-    game.nextQuestion();
-    realtime.broadcast('next', {});
+    const startedAt = Date.now();
+    game.nextQuestion(startedAt);
+    realtime.broadcast('next', { startedAt });
   }, [realtime, game]);
 
   // Host ends game
