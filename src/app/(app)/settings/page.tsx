@@ -10,6 +10,22 @@ import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { PRICE_AMOUNT } from '@/lib/constants';
 
+interface CategoryStat {
+  name: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+}
+
+interface StatsData {
+  total: number;
+  correct: number;
+  accuracy: number;
+  totalPoints: number;
+  bestCategory: string | null;
+  categories: CategoryStat[];
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const { user, profile, signOut } = useAuth();
@@ -19,12 +35,20 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [stats, setStats] = useState<StatsData | null>(null);
 
   useEffect(() => {
     if (profile?.display_name) {
       setDisplayName(profile.display_name);
     }
   }, [profile]);
+
+  useEffect(() => {
+    fetch('/api/stats')
+      .then((r) => r.json())
+      .then((data) => { if (!data.error) setStats(data); })
+      .catch(() => {});
+  }, []);
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -195,6 +219,73 @@ export default function SettingsPage() {
                 Upgrade for ${PRICE_AMOUNT}
               </Button>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Stats */}
+      <Card>
+        <CardHeader>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+            Your Stats
+          </h2>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!stats ? (
+            <p className="text-sm text-gray-400">Loading stats...</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Questions</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-green-600">{stats.correct}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Correct</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-indigo-600">{stats.accuracy}%</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Accuracy</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-amber-600">{stats.totalPoints}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Total Points</p>
+                </div>
+              </div>
+
+              {stats.bestCategory && (
+                <div className="rounded-lg bg-indigo-50 px-4 py-3">
+                  <p className="text-sm text-indigo-700">
+                    Best category: <span className="font-semibold">{stats.bestCategory}</span>
+                  </p>
+                </div>
+              )}
+
+              {stats.categories.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">By Category</p>
+                  <div className="space-y-2">
+                    {stats.categories.slice(0, 8).map((cat) => (
+                      <div key={cat.name} className="flex items-center gap-3">
+                        <span className="text-sm text-gray-700 w-28 shrink-0 truncate">{cat.name}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-2">
+                          <div
+                            className="bg-indigo-500 h-2 rounded-full"
+                            style={{ width: `${cat.accuracy}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-500 w-12 text-right">{cat.accuracy}% ({cat.total})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {stats.total === 0 && (
+                <p className="text-sm text-gray-400 text-center py-2">No games played yet. Start practicing to see your stats!</p>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
