@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { sessionId }: { sessionId: string } = await request.json();
+    const { sessionId, action }: { sessionId: string; action?: string } = await request.json();
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
@@ -32,6 +32,22 @@ export async function POST(request: NextRequest) {
 
     if (session.host_id !== user.id) {
       return NextResponse.json({ error: 'Only the host can advance the game' }, { status: 403 });
+    }
+
+    // Handle "start" action for multiplayer lobby -> active
+    if (action === 'start') {
+      const { data: updatedSession, error: updateError } = await admin
+        .from('game_sessions')
+        .update({ status: 'active' })
+        .eq('id', sessionId)
+        .select()
+        .single();
+
+      if (updateError) {
+        return NextResponse.json({ error: 'Failed to start game' }, { status: 500 });
+      }
+
+      return NextResponse.json({ session: updatedSession });
     }
 
     const nextIndex = session.current_question_index + 1;

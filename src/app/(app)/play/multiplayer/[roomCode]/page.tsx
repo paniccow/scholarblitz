@@ -2,11 +2,11 @@
 
 import React, { useEffect, useState, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useGameState } from '@/hooks/useGameState';
 import { useRealtimeGame } from '@/hooks/useRealtimeGame';
 import { useTTS } from '@/hooks/useTTS';
+import { useUsageTracker } from '@/hooks/useUsageTracker';
 import { GameSession } from '@/types/game';
 import { Question } from '@/types/question';
 import { QuestionCard } from '@/components/game/QuestionCard';
@@ -16,6 +16,7 @@ import { Scoreboard } from '@/components/game/Scoreboard';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { Card, CardContent } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 
 type Phase = 'lobby' | 'playing' | 'finished';
 
@@ -27,6 +28,7 @@ export default function MultiplayerGamePage({
   const { roomCode } = use(params);
   const router = useRouter();
   const { user, profile } = useAuth();
+  const { isPaywalled } = useUsageTracker();
 
   const [phase, setPhase] = useState<Phase>('lobby');
   const [session, setSession] = useState<GameSession | null>(null);
@@ -36,6 +38,7 @@ export default function MultiplayerGamePage({
   const [buzzedPlayer, setBuzzedPlayer] = useState<string | null>(null);
   const [revealedWords, setRevealedWords] = useState(0);
   const [isHost, setIsHost] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
 
   const realtime = useRealtimeGame(roomCode);
 
@@ -45,36 +48,35 @@ export default function MultiplayerGamePage({
 
   const tts = useTTS(game.currentQuestion?.question_text ?? '');
 
-  // Fetch session info
+  // Fetch session info via API
   useEffect(() => {
     const fetchSession = async () => {
-      const supabase = createClient();
+      try {
+        const res = await fetch(`/api/game/session?roomCode=${roomCode}`);
+        if (!res.ok) {
+          const data = await res.json();
+          setError(data.error || 'Room not found.');
+          setLoading(false);
+          return;
+        }
 
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('game_sessions')
-        .select('*')
-        .eq('room_code', roomCode)
-        .single();
+        const { session: sessionData, questions: questionData } = await res.json();
+        const typedSession = sessionData as GameSession;
+        setSession(typedSession);
+        setIsHost(typedSession.host_id === user?.id);
 
-      if (sessionError || !sessionData) {
-        setError('Room not found.');
+        if (typedSession.status === 'active') {
+          setQuestions(questionData as Question[]);
+          setPhase('playing');
+        } else if (typedSession.status === 'finished') {
+          setPhase('finished');
+        }
+
         setLoading(false);
-        return;
+      } catch {
+        setError('Failed to load room.');
+        setLoading(false);
       }
-
-      const typedSession = sessionData as GameSession;
-      setSession(typedSession);
-      setIsHost(typedSession.host_id === user?.id);
-
-      if (typedSession.status === 'active') {
-        // Game already started, load questions and join
-        await loadQuestions(typedSession.id);
-        setPhase('playing');
-      } else if (typedSession.status === 'finished') {
-        setPhase('finished');
-      }
-
-      setLoading(false);
     };
 
     if (user) {
@@ -146,18 +148,14 @@ export default function MultiplayerGamePage({
   }, [realtime, game]);
 
   const loadQuestions = async (sessionId: string) => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('game_questions')
-      .select('questions(*)')
-      .eq('session_id', sessionId)
-      .order('question_index', { ascending: true });
-
-    if (data) {
-      const loaded = data.map(
-        (q: Record<string, unknown>) => q.questions as unknown as Question
-      );
-      setQuestions(loaded);
+    try {
+      const res = await fetch(`/api/game/session?id=${sessionId}`);
+      if (res.ok) {
+        const { questions: questionData } = await res.json();
+        setQuestions(questionData as Question[]);
+      }
+    } catch {
+      console.error('Failed to load questions');
     }
   };
 
@@ -180,7 +178,7 @@ export default function MultiplayerGamePage({
     return () => clearInterval(timer);
   }, [game.state, game.currentQuestion, game.currentQuestionIndex, session?.time_per_question]);
 
-  // TTS
+  // TTS - each client plays independently
   useEffect(() => {
     if (game.state === 'reading' && session?.tts_enabled) {
       tts.speak();
@@ -201,13 +199,15 @@ export default function MultiplayerGamePage({
   const handleStartGame = useCallback(async () => {
     if (!session || !user) return;
 
-    const supabase = createClient();
-    await supabase
-      .from('game_sessions')
-      .update({ status: 'active' })
-      .eq('id', session.id);
+    await fetch('/api/game/advance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: session.id, action: 'start' }),
+    });
 
     realtime.broadcast('game_start', { sessionId: session.id });
+    await loadQuestions(session.id);
+    setPhase('playing');
   }, [session, user, realtime]);
 
   // Player buzzes
@@ -241,14 +241,26 @@ export default function MultiplayerGamePage({
   const handleEndGame = useCallback(async () => {
     if (!session) return;
 
-    const supabase = createClient();
-    await supabase
-      .from('game_sessions')
-      .update({ status: 'finished', finished_at: new Date().toISOString() })
-      .eq('id', session.id);
+    await fetch('/api/game/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: session.id, score: 0 }),
+    });
 
     realtime.broadcast('game_end', {});
+    setPhase('finished');
   }, [session, realtime]);
+
+  // Leave game
+  const handleLeave = useCallback(() => {
+    tts.stop();
+    router.push('/play/setup');
+  }, [tts, router]);
+
+  // Check paywall
+  useEffect(() => {
+    if (isPaywalled) setShowPaywall(true);
+  }, [isPaywalled]);
 
   // Keyboard shortcut for buzz
   useEffect(() => {
@@ -283,9 +295,25 @@ export default function MultiplayerGamePage({
   if (phase === 'lobby') {
     return (
       <div className="max-w-lg mx-auto space-y-6 text-center">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleLeave}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Leave room"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold text-gray-900">Game Lobby</h1>
+          </div>
+          <div className="w-9" />
+        </div>
+
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Game Lobby</h1>
-          <p className="mt-2 text-gray-500">Share this code with friends:</p>
+          <p className="text-gray-500">Share this code with friends:</p>
           <p className="mt-2 text-4xl font-mono font-bold text-indigo-600 tracking-[0.3em]">
             {roomCode}
           </p>
@@ -347,8 +375,8 @@ export default function MultiplayerGamePage({
           <Button variant="secondary" onClick={() => router.push('/dashboard')}>
             Dashboard
           </Button>
-          <Button onClick={() => router.push(`/play/results?session=${session?.id}`)}>
-            View Results
+          <Button onClick={() => router.push('/play/setup')}>
+            Play Again
           </Button>
         </div>
       </div>
@@ -358,18 +386,94 @@ export default function MultiplayerGamePage({
   // PLAYING PHASE
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {/* Paywall modal */}
+      <Modal isOpen={showPaywall} onClose={() => setShowPaywall(false)} title="Free Limit Reached">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            You&apos;ve used all your free practice time. Upgrade to continue playing unlimited.
+          </p>
+          <div className="flex gap-3">
+            <Button variant="secondary" fullWidth onClick={() => router.push('/dashboard')}>
+              Go Back
+            </Button>
+            <Button fullWidth onClick={() => router.push('/settings')}>
+              Upgrade
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Multiplayer</h1>
-          <p className="text-sm text-gray-500">
-            Room: {roomCode} | Q{game.currentQuestionIndex + 1}/{game.totalQuestions}
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleLeave}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Leave game"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Multiplayer</h1>
+            <p className="text-sm text-gray-500">
+              Room: {roomCode} | Q{game.currentQuestionIndex + 1}/{game.totalQuestions}
+            </p>
+          </div>
         </div>
-        <Timer
-          timeLeft={game.timer.timeLeft}
-          totalTime={session?.time_per_question ?? 15}
-        />
+        <div className="flex items-center gap-3">
+          {/* TTS Controls */}
+          {session?.tts_enabled && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={tts.isReading ? tts.stop : tts.speak}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+                title={tts.isReading ? 'Stop reading' : 'Read aloud'}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  {tts.isReading ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  )}
+                </svg>
+              </button>
+              {tts.voices.length > 1 && (
+                <select
+                  value={tts.selectedVoice?.name ?? ''}
+                  onChange={(e) => {
+                    const voice = tts.voices.find((v) => v.name === e.target.value);
+                    if (voice) tts.setVoice(voice);
+                  }}
+                  className="text-xs border border-gray-200 rounded-md px-1.5 py-1 text-gray-600 max-w-[120px]"
+                >
+                  {tts.voices.map((v) => (
+                    <option key={v.name} value={v.name}>
+                      {v.name.replace(/Microsoft |Google |Apple /, '')}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <select
+                value={tts.rate}
+                onChange={(e) => tts.setSpeed(Number(e.target.value) as 0.75 | 1 | 1.25 | 1.5)}
+                className="text-xs border border-gray-200 rounded-md px-1.5 py-1 text-gray-600"
+              >
+                <option value={0.75}>0.75x</option>
+                <option value={1}>1x</option>
+                <option value={1.25}>1.25x</option>
+                <option value={1.5}>1.5x</option>
+              </select>
+            </div>
+          )}
+          <Timer
+            timeLeft={game.timer.timeLeft}
+            totalTime={session?.time_per_question ?? 15}
+          />
+        </div>
       </div>
 
       {/* Question */}

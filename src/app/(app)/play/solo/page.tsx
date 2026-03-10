@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useGameState } from '@/hooks/useGameState';
 import { useTTS } from '@/hooks/useTTS';
@@ -39,7 +38,7 @@ export default function SoloGamePage() {
 
   const tts = useTTS(game.currentQuestion?.question_text ?? '');
 
-  // Fetch session and questions
+  // Fetch session and questions via API route (avoids RLS issues)
   useEffect(() => {
     if (!sessionId) {
       setError('No session ID provided.');
@@ -48,39 +47,23 @@ export default function SoloGamePage() {
     }
 
     const fetchSession = async () => {
-      const supabase = createClient();
+      try {
+        const res = await fetch(`/api/game/session?id=${sessionId}`);
+        if (!res.ok) {
+          const data = await res.json();
+          setError(data.error || 'Game session not found.');
+          setLoading(false);
+          return;
+        }
 
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('game_sessions')
-        .select('*')
-        .eq('id', sessionId)
-        .single();
-
-      if (sessionError || !sessionData) {
-        setError('Game session not found.');
+        const { session: sessionData, questions: questionData } = await res.json();
+        setSession(sessionData as GameSession);
+        setQuestions(questionData as Question[]);
         setLoading(false);
-        return;
-      }
-
-      setSession(sessionData as GameSession);
-
-      const { data: questionData, error: questionError } = await supabase
-        .from('game_questions')
-        .select('questions(*)')
-        .eq('session_id', sessionId)
-        .order('question_index', { ascending: true });
-
-      if (questionError || !questionData) {
-        setError('Failed to load questions.');
+      } catch {
+        setError('Failed to load game session.');
         setLoading(false);
-        return;
       }
-
-      const loadedQuestions = questionData.map(
-        (q: Record<string, unknown>) => q.questions as unknown as Question
-      );
-      setQuestions(loadedQuestions);
-      setLoading(false);
     };
 
     fetchSession();
@@ -156,20 +139,13 @@ export default function SoloGamePage() {
   const handleFinish = useCallback(async () => {
     if (!sessionId || !user) return;
 
-    // Save final score to Supabase
-    const supabase = createClient();
     const finalScore = game.scores.find((s) => s.userId === user.id)?.score ?? 0;
 
-    await supabase
-      .from('game_players')
-      .update({ score: finalScore })
-      .eq('session_id', sessionId)
-      .eq('user_id', user.id);
-
-    await supabase
-      .from('game_sessions')
-      .update({ status: 'finished', finished_at: new Date().toISOString() })
-      .eq('id', sessionId);
+    await fetch('/api/game/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, score: finalScore }),
+    });
 
     router.push(`/play/results?session=${sessionId}`);
   }, [sessionId, user, game.scores, router]);
@@ -260,13 +236,29 @@ export default function SoloGamePage() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Solo Practice</h1>
-          <p className="text-sm text-gray-500">
-            Question {game.currentQuestionIndex + 1} of {game.totalQuestions}
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              tts.stop();
+              game.endGame();
+              router.push('/play/setup');
+            }}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Leave game"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Solo Practice</h1>
+            <p className="text-sm text-gray-500">
+              Question {game.currentQuestionIndex + 1} of {game.totalQuestions}
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* TTS Controls */}
           {session?.tts_enabled && (
             <div className="flex items-center gap-2">
@@ -284,6 +276,22 @@ export default function SoloGamePage() {
                   )}
                 </svg>
               </button>
+              {tts.voices.length > 1 && (
+                <select
+                  value={tts.selectedVoice?.name ?? ''}
+                  onChange={(e) => {
+                    const voice = tts.voices.find((v) => v.name === e.target.value);
+                    if (voice) tts.setVoice(voice);
+                  }}
+                  className="text-xs border border-gray-200 rounded-md px-1.5 py-1 text-gray-600 max-w-[120px]"
+                >
+                  {tts.voices.map((v) => (
+                    <option key={v.name} value={v.name}>
+                      {v.name.replace(/Microsoft |Google |Apple /, '')}
+                    </option>
+                  ))}
+                </select>
+              )}
               <select
                 value={tts.rate}
                 onChange={(e) => tts.setSpeed(Number(e.target.value) as 0.75 | 1 | 1.25 | 1.5)}

@@ -34,13 +34,12 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient();
 
     // Select random questions matching the requested categories
-    // Supabase doesn't support ORDER BY random() in the JS client,
-    // so we fetch more than we need and shuffle client-side
+    // Fetch all matching questions and use Fisher-Yates shuffle for true randomization
     const { data: allQuestions, error: questionsError } = await admin
       .from('questions')
       .select('id')
       .in('category', categories)
-      .limit(questionCount * 5);
+      .limit(Math.max(questionCount * 10, 500));
 
     if (questionsError) {
       return NextResponse.json({ error: 'Failed to fetch questions' }, { status: 500 });
@@ -50,9 +49,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No questions found for selected categories' }, { status: 404 });
     }
 
-    // Shuffle and take the requested count
-    const shuffled = allQuestions.sort(() => Math.random() - 0.5);
-    const questions = shuffled.slice(0, Math.min(questionCount, shuffled.length));
+    // Fisher-Yates shuffle for unbiased randomization
+    for (let i = allQuestions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allQuestions[i], allQuestions[j]] = [allQuestions[j], allQuestions[i]];
+    }
+    const questions = allQuestions.slice(0, Math.min(questionCount, allQuestions.length));
 
     // Generate room code for multiplayer
     const roomCode = mode === 'multiplayer' ? generateRoomCode() : null;
@@ -107,7 +109,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to add host as player' }, { status: 500 });
     }
 
-    return NextResponse.json({ session });
+    return NextResponse.json({
+      sessionId: session.id,
+      roomCode: session.room_code,
+      session,
+    });
   } catch (error) {
     console.error('Game create error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
