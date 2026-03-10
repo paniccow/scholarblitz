@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 const FREE_LIMIT_SECONDS = 900; // 15 minutes
 const TRACK_INTERVAL_MS = 10_000; // 10 seconds
 
-export function useUsageTracker() {
+export function useUsageTracker(isPlaying = false) {
   const { profile } = useAuth();
   const [secondsUsed, setSecondsUsed] = useState(0);
   const [isPaywalled, setIsPaywalled] = useState(false);
@@ -49,10 +49,9 @@ export function useUsageTracker() {
     }
   }, [plan]);
 
-  // Start tracking interval on mount
+  // Start tracking interval only while actively playing
   useEffect(() => {
-    // Don't track if already paywalled or on paid plan
-    if (isPaywalled || plan === 'paid') {
+    if (!isPlaying || isPaywalled || plan === 'paid') {
       return;
     }
 
@@ -64,7 +63,7 @@ export function useUsageTracker() {
         intervalRef.current = null;
       }
     };
-  }, [trackUsage, isPaywalled, plan]);
+  }, [isPlaying, trackUsage, isPaywalled, plan]);
 
   return { secondsUsed, isPaywalled, plan };
 }

@@ -28,7 +28,6 @@ export default function MultiplayerGamePage({
   const { roomCode } = use(params);
   const router = useRouter();
   const { user, profile } = useAuth();
-  const { isPaywalled } = useUsageTracker();
 
   const [phase, setPhase] = useState<Phase>('lobby');
   const [session, setSession] = useState<GameSession | null>(null);
@@ -46,6 +45,9 @@ export default function MultiplayerGamePage({
   const game = useGameState({
     timePerQuestion: session?.time_per_question ?? 15,
   });
+
+  const isActivePlaying = phase === 'playing' && game.state !== 'idle' && game.state !== 'finished';
+  const { isPaywalled } = useUsageTracker(isActivePlaying);
 
   const tts = useTTS(game.currentQuestion?.question_text ?? '');
 

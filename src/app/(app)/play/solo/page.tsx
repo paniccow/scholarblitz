@@ -30,7 +30,6 @@ function SoloGamePage() {
   const sessionId = searchParams.get('session');
 
   const { user, profile } = useAuth();
-  const { isPaywalled } = useUsageTracker();
 
   const [session, setSession] = useState<GameSession | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -43,6 +42,9 @@ function SoloGamePage() {
     timePerQuestion: session?.time_per_question ?? 15,
     onTimeUp: undefined,
   });
+
+  const isPlaying = game.state !== 'idle' && game.state !== 'finished';
+  const { isPaywalled } = useUsageTracker(isPlaying);
 
   const tts = useTTS(game.currentQuestion?.question_text ?? '');
 
