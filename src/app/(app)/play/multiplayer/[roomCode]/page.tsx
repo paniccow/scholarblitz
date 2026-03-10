@@ -40,6 +40,7 @@ export default function MultiplayerGamePage({
   const [hasGuessed, setHasGuessed] = useState(false);
   const [revealedWords, setRevealedWords] = useState(0);
   const [hideText, setHideText] = useState(false);
+  const [lobbyPlayers, setLobbyPlayers] = useState<{ userId: string; displayName: string; isHost: boolean }[]>([]);
 
   const realtime = useRealtimeGame(roomCode);
 
@@ -83,7 +84,22 @@ export default function MultiplayerGamePage({
     fetchSession();
   }, [roomCode, user]);
 
-  // Track presence whenever user/profile/isHost changes — hook queues it if channel not ready yet
+  // Poll game_players from DB while in lobby — reliable alternative to presence
+  useEffect(() => {
+    if (phase !== 'lobby' || !session) return;
+    const fetchPlayers = async () => {
+      const res = await fetch(`/api/game/session?roomCode=${roomCode}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.players) setLobbyPlayers(data.players);
+      }
+    };
+    fetchPlayers();
+    const interval = setInterval(fetchPlayers, 2000);
+    return () => clearInterval(interval);
+  }, [phase, session, roomCode]);
+
+  // Still track presence for in-game scoreboard display
   useEffect(() => {
     if (!user) return;
     const displayName = profile?.display_name ?? user.email?.split('@')[0] ?? 'Player';
@@ -221,10 +237,11 @@ export default function MultiplayerGamePage({
     game.revealTimeUp();
   }, [realtime, game]);
 
-  // Host advances to next question
+  // Host advances to next question — call locally + broadcast to non-hosts
   const handleNext = useCallback(() => {
+    game.nextQuestion();
     realtime.broadcast('next', {});
-  }, [realtime]);
+  }, [realtime, game]);
 
   // Host ends game
   const handleEndGame = useCallback(async () => {
@@ -291,10 +308,10 @@ export default function MultiplayerGamePage({
         <Card>
           <CardContent>
             <h2 className="text-sm font-semibold text-black uppercase tracking-wide mb-3">
-              Players ({realtime.players.length})
+              Players ({lobbyPlayers.length})
             </h2>
             <ul className="divide-y divide-gray-100">
-              {realtime.players.map((p) => (
+              {lobbyPlayers.map((p) => (
                 <li key={p.userId} className="flex items-center justify-between py-3">
                   <span className="text-base font-medium text-black">
                     {p.displayName}
@@ -309,7 +326,7 @@ export default function MultiplayerGamePage({
                   )}
                 </li>
               ))}
-              {realtime.players.length === 0 && (
+              {lobbyPlayers.length === 0 && (
                 <li className="py-4 text-sm text-gray-500 text-center">
                   Waiting for players to join...
                 </li>

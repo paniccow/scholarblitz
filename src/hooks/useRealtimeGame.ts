@@ -34,7 +34,7 @@ export function useRealtimeGame(roomCode: string) {
 
     const gameChannel = supabase.channel(`game:${roomCode}`, {
       config: {
-        broadcast: { self: true },
+        broadcast: { self: false },
         presence: { key: '' },
       },
     });

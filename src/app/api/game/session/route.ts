@@ -72,7 +72,23 @@ export async function GET(request: NextRequest) {
       (gq: Record<string, unknown>) => gq.questions
     ) ?? [];
 
-    return NextResponse.json({ session, questions });
+    // Fetch lobby players with display names
+    const { data: gamePlayers } = await admin
+      .from('game_players')
+      .select('user_id, is_host, score, profiles(display_name, email)')
+      .eq('session_id', session.id);
+
+    const players = (gamePlayers ?? []).map((p: Record<string, unknown>) => {
+      const profile = p.profiles as Record<string, unknown> | null;
+      return {
+        userId: p.user_id,
+        isHost: p.is_host,
+        score: p.score,
+        displayName: (profile?.display_name as string) ?? (profile?.email as string)?.split('@')[0] ?? 'Player',
+      };
+    });
+
+    return NextResponse.json({ session, questions, players });
   } catch (error) {
     console.error('Game session fetch error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
