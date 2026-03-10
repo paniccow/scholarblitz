@@ -67,13 +67,24 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const { error } = await supabase.auth.signInWithIdToken({
+    const { data: signInData, error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
       token: tokens.id_token,
     });
 
     if (error) {
       return NextResponse.redirect(`${appUrl}/login?error=auth_callback_failed`);
+    }
+
+    // Always sync Google display name to profile
+    const googleName =
+      signInData.user?.user_metadata?.full_name ??
+      signInData.user?.user_metadata?.name;
+    if (signInData.user && googleName) {
+      await supabase
+        .from('profiles')
+        .update({ display_name: googleName })
+        .eq('id', signInData.user.id);
     }
 
     // Clear PKCE cookies
