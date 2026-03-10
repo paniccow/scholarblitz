@@ -38,6 +38,7 @@ export default function MultiplayerGamePage({
   const [isHost, setIsHost] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [wrongFeedback, setWrongFeedback] = useState<string | null>(null);
+  const [hasGuessed, setHasGuessed] = useState(false);
   const [revealedWords, setRevealedWords] = useState(0);
 
   const realtime = useRealtimeGame(roomCode);
@@ -79,16 +80,17 @@ export default function MultiplayerGamePage({
     fetchSession();
   }, [roomCode, user]);
 
-  // Track presence — wait until session loaded so isHost is accurate
+  // Track presence as soon as channel is ready — re-track when isHost resolves
   useEffect(() => {
-    if (!user || !profile || !realtime.channel || loading) return;
+    if (!user || !realtime.channel) return;
+    const displayName = profile?.display_name ?? user.email?.split('@')[0] ?? 'Player';
     realtime.trackPresence({
       userId: user.id,
-      displayName: profile.display_name ?? 'Player',
+      displayName,
       isHost,
       joinedAt: new Date().toISOString(),
     });
-  }, [user, profile, realtime.channel, isHost, loading]);
+  }, [user, profile, realtime.channel, isHost]);
 
   const loadQuestions = useCallback(async (sessionId: string) => {
     const res = await fetch(`/api/game/session?id=${sessionId}`);
@@ -178,24 +180,25 @@ export default function MultiplayerGamePage({
     setPhase('playing');
   }, [session, user, realtime, loadQuestions]);
 
-  // Any player submits an answer (open answering)
-  const handleAnswer = useCallback((answer: string) => {
-    if (!user || game.state !== 'reading') return;
+  // Reset guess lock on each new question
+  useEffect(() => {
+    if (game.state === 'reading') setHasGuessed(false);
+  }, [game.currentQuestionIndex, game.state]);
 
-    // Check locally — only broadcast if correct (first correct wins)
-    const isCorrect = game.openAnswer(answer, user.id, profile?.display_name ?? 'Player');
+  // Any player submits an answer (open answering — one guess per question)
+  const handleAnswer = useCallback((answer: string) => {
+    if (!user || game.state !== 'reading' || hasGuessed) return;
+
+    const displayName = profile?.display_name ?? user.email?.split('@')[0] ?? 'Player';
+    const isCorrect = game.openAnswer(answer, user.id, displayName);
 
     if (isCorrect) {
-      realtime.broadcast('answer', {
-        answer,
-        userId: user.id,
-        displayName: profile?.display_name ?? 'Player',
-      });
+      realtime.broadcast('answer', { answer, userId: user.id, displayName });
     } else {
-      setWrongFeedback('Not quite — try again!');
-      setTimeout(() => setWrongFeedback(null), 2000);
+      setHasGuessed(true);
+      setWrongFeedback('Wrong — you can\'t guess again this round.');
     }
-  }, [user, profile, game, realtime]);
+  }, [user, profile, game, realtime, hasGuessed]);
 
   // Host reveals when timer runs out
   const handleReveal = useCallback(() => {
@@ -225,7 +228,8 @@ export default function MultiplayerGamePage({
     router.push('/play/setup');
   }, [tts, router]);
 
-  const timerUp = game.state === 'reading' && game.timer.timeLeft === 0;
+  const timerEnabled = (session?.time_per_question ?? 0) > 0;
+  const timerUp = timerEnabled && game.state === 'reading' && game.timer.timeLeft === 0;
 
   if (loading) {
     return (
@@ -423,17 +427,18 @@ export default function MultiplayerGamePage({
       {/* Game controls */}
       <div className="space-y-3">
 
-        {/* Open answer input — all players can answer during reading */}
+        {/* Open answer input — one guess per question */}
         {game.state === 'reading' && !timerUp && (
           <div className="space-y-2">
-            <AnswerInput onSubmit={handleAnswer} placeholder="Type your answer and press Enter..." />
-            {wrongFeedback && (
-              <p className="text-sm font-semibold text-red-600 text-center">{wrongFeedback}</p>
+            {!hasGuessed ? (
+              <AnswerInput onSubmit={handleAnswer} placeholder="Type your answer and press Enter..." />
+            ) : (
+              <p className="text-sm font-semibold text-red-600 text-center bg-red-50 rounded-lg px-3 py-2">{wrongFeedback}</p>
             )}
           </div>
         )}
 
-        {/* Timer ran out — show answer or let host reveal */}
+        {/* Timer ran out — host reveals */}
         {timerUp && (
           <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-center space-y-3">
             <p className="font-bold text-black text-lg">Time&apos;s up!</p>
@@ -443,8 +448,17 @@ export default function MultiplayerGamePage({
               </Button>
             )}
             {!isHost && (
-              <p className="text-gray-700 font-medium">Waiting for host to reveal the answer...</p>
+              <p className="text-gray-700 font-medium">Waiting for host to reveal...</p>
             )}
+          </div>
+        )}
+
+        {/* No timer — host can reveal at any time */}
+        {!timerEnabled && game.state === 'reading' && isHost && (
+          <div className="flex justify-end">
+            <Button variant="secondary" size="sm" onClick={handleReveal}>
+              Reveal Answer
+            </Button>
           </div>
         )}
 
