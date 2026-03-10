@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
-import { GamePlayer } from '@/types/game';
 
 export type RealtimeEvent =
   | 'buzz'
@@ -26,6 +25,8 @@ export function useRealtimeGame(roomCode: string) {
   const [players, setPlayers] = useState<PresenceState[]>([]);
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const handlersRef = useRef<Map<RealtimeEvent, EventHandler[]>>(new Map());
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const pendingPresenceRef = useRef<PresenceState | null>(null);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
@@ -38,7 +39,6 @@ export function useRealtimeGame(roomCode: string) {
       },
     });
 
-    // Rebuild player list from full presence state (used by all three events)
     const syncPlayers = () => {
       const presenceState = gameChannel.presenceState();
       const connectedPlayers: PresenceState[] = [];
@@ -50,12 +50,10 @@ export function useRealtimeGame(roomCode: string) {
       setPlayers(connectedPlayers);
     };
 
-    // sync fires on initial connection; join/leave fire for subsequent changes
     gameChannel.on('presence', { event: 'sync' }, syncPlayers);
     gameChannel.on('presence', { event: 'join' }, syncPlayers);
     gameChannel.on('presence', { event: 'leave' }, syncPlayers);
 
-    // Handle broadcast events
     const events: RealtimeEvent[] = [
       'buzz',
       'answer',
@@ -76,11 +74,17 @@ export function useRealtimeGame(roomCode: string) {
 
     gameChannel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
+        channelRef.current = gameChannel;
         setChannel(gameChannel);
+        // If trackPresence was called before the channel was ready, track now
+        if (pendingPresenceRef.current) {
+          await gameChannel.track(pendingPresenceRef.current);
+        }
       }
     });
 
     return () => {
+      channelRef.current = null;
       supabase.removeChannel(gameChannel);
       setChannel(null);
       setPlayers([]);
@@ -89,30 +93,29 @@ export function useRealtimeGame(roomCode: string) {
 
   const broadcast = useCallback(
     async (event: RealtimeEvent, payload: Record<string, unknown>) => {
-      if (!channel) return;
-      await channel.send({
+      if (!channelRef.current) return;
+      await channelRef.current.send({
         type: 'broadcast',
         event,
         payload,
       });
     },
-    [channel]
+    []
   );
 
-  const trackPresence = useCallback(
-    async (presenceData: PresenceState) => {
-      if (!channel) return;
-      await channel.track(presenceData);
-    },
-    [channel]
-  );
+  // Always stable — stores presence in ref so it works even before channel is ready
+  const trackPresence = useCallback(async (presenceData: PresenceState) => {
+    pendingPresenceRef.current = presenceData;
+    if (channelRef.current) {
+      await channelRef.current.track(presenceData);
+    }
+  }, []);
 
   const onEvent = useCallback(
     (event: RealtimeEvent, handler: EventHandler) => {
       const existing = handlersRef.current.get(event) ?? [];
       handlersRef.current.set(event, [...existing, handler]);
 
-      // Return unsubscribe function
       return () => {
         const current = handlersRef.current.get(event) ?? [];
         handlersRef.current.set(

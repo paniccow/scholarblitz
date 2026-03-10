@@ -82,9 +82,9 @@ export default function MultiplayerGamePage({
     fetchSession();
   }, [roomCode, user]);
 
-  // Track presence as soon as channel is ready — re-track when isHost resolves
+  // Track presence whenever user/profile/isHost changes — hook queues it if channel not ready yet
   useEffect(() => {
-    if (!user || !realtime.channel) return;
+    if (!user) return;
     const displayName = profile?.display_name ?? user.email?.split('@')[0] ?? 'Player';
     realtime.trackPresence({
       userId: user.id,
@@ -92,7 +92,7 @@ export default function MultiplayerGamePage({
       isHost,
       joinedAt: new Date().toISOString(),
     });
-  }, [user, profile, realtime.channel, isHost]);
+  }, [user, profile, isHost]);
 
   const loadQuestions = useCallback(async (sessionId: string) => {
     const res = await fetch(`/api/game/session?id=${sessionId}`);
