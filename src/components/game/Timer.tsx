@@ -13,6 +13,9 @@ export const Timer: React.FC<TimerProps> = ({
   totalTime,
   size = 80,
 }) => {
+  // totalTime === 0 means timer is disabled
+  if (totalTime === 0) return null;
+
   const radius = (size - 8) / 2;
   const circumference = 2 * Math.PI * radius;
   const fraction = totalTime > 0 ? timeLeft / totalTime : 0;

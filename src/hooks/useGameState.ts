@@ -36,8 +36,10 @@ export function useGameState(options: UseGameStateOptions = {}) {
       setLastAnswer(null);
       setLastCorrect(null);
       setState('reading');
-      timer.reset(timePerQuestion);
-      timer.start();
+      if (timePerQuestion > 0) {
+        timer.reset(timePerQuestion);
+        timer.start();
+      }
     },
     [timer, timePerQuestion]
   );
@@ -154,8 +156,10 @@ export function useGameState(options: UseGameStateOptions = {}) {
     setLastAnswer(null);
     setLastCorrect(null);
     setState('reading');
-    timer.reset(timePerQuestion);
-    timer.start();
+    if (timePerQuestion > 0) {
+      timer.reset(timePerQuestion);
+      timer.start();
+    }
   }, [state, currentQuestionIndex, questions.length, timer, timePerQuestion]);
 
   const endGame = useCallback(() => {
