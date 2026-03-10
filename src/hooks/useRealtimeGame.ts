@@ -38,19 +38,22 @@ export function useRealtimeGame(roomCode: string) {
       },
     });
 
-    // Handle presence sync
-    gameChannel.on('presence', { event: 'sync' }, () => {
+    // Rebuild player list from full presence state (used by all three events)
+    const syncPlayers = () => {
       const presenceState = gameChannel.presenceState();
       const connectedPlayers: PresenceState[] = [];
-
       Object.values(presenceState).forEach((presences) => {
         (presences as unknown as PresenceState[]).forEach((presence) => {
           connectedPlayers.push(presence);
         });
       });
-
       setPlayers(connectedPlayers);
-    });
+    };
+
+    // sync fires on initial connection; join/leave fire for subsequent changes
+    gameChannel.on('presence', { event: 'sync' }, syncPlayers);
+    gameChannel.on('presence', { event: 'join' }, syncPlayers);
+    gameChannel.on('presence', { event: 'leave' }, syncPlayers);
 
     // Handle broadcast events
     const events: RealtimeEvent[] = [
