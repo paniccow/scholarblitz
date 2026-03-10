@@ -16,7 +16,7 @@ const categories = [
   { name: 'Social Science', count: '250+', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
   { name: 'Pop Culture', count: '400+', color: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200' },
   { name: 'Sports', count: '200+', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  { name: 'General', count: '300+', color: 'bg-gray-50 text-gray-700 border-gray-200' },
+  { name: 'General', count: 'All', color: 'bg-gray-50 text-gray-700 border-gray-200' },
 ];
 
 const stats = [

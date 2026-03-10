@@ -33,13 +33,16 @@ export async function POST(request: NextRequest) {
 
     const admin = createAdminClient();
 
-    // Select random questions matching the requested categories
-    // Fetch all matching questions and use Fisher-Yates shuffle for true randomization
-    const { data: allQuestions, error: questionsError } = await admin
+    // If "General" is selected, fetch from all categories
+    const isGeneral = categories.includes('General');
+    const questionQuery = admin
       .from('questions')
       .select('id')
-      .in('category', categories)
       .limit(Math.max(questionCount * 10, 500));
+    if (!isGeneral) {
+      questionQuery.in('category', categories);
+    }
+    const { data: allQuestions, error: questionsError } = await questionQuery;
 
     if (questionsError) {
       return NextResponse.json({ error: 'Failed to fetch questions' }, { status: 500 });
