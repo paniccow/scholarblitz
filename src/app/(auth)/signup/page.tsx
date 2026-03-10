@@ -64,21 +64,10 @@ export default function SignupPage() {
     setLoading(false);
   };
 
-  const handleGoogleSignup = async () => {
+  const handleGoogleSignup = () => {
     setError(null);
     setOauthLoading(true);
-
-    const { error: authError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/callback`,
-      },
-    });
-
-    if (authError) {
-      setError(authError.message);
-      setOauthLoading(false);
-    }
+    window.location.href = '/api/auth/google';
   };
 
   if (checkEmail) {

@@ -36,21 +36,10 @@ export default function LoginPage() {
     router.push('/dashboard');
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = () => {
     setError(null);
     setOauthLoading(true);
-
-    const { error: authError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/callback`,
-      },
-    });
-
-    if (authError) {
-      setError(authError.message);
-      setOauthLoading(false);
-    }
+    window.location.href = '/api/auth/google';
   };
 
   return (
