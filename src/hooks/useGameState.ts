@@ -89,13 +89,59 @@ export function useGameState(options: UseGameStateOptions = {}) {
     [state, questions, currentQuestionIndex]
   );
 
+  // Open answering: works from 'reading' state, returns true if correct
+  const openAnswer = useCallback(
+    (answer: string, userId?: string, displayName?: string): boolean => {
+      if (state !== 'reading') return false;
+      const question = questions[currentQuestionIndex];
+      if (!question) return false;
+
+      const normalizedAnswer = answer.trim().toLowerCase();
+      const correctAnswers = [
+        question.answer.toLowerCase(),
+        ...question.answer_aliases.map((a) => a.toLowerCase()),
+      ];
+      const isCorrect = correctAnswers.some(
+        (c) => c === normalizedAnswer || c.includes(normalizedAnswer)
+      );
+
+      setLastAnswer(answer);
+      setLastCorrect(isCorrect);
+
+      if (isCorrect) {
+        timer.stop();
+        if (userId) {
+          setScores((prev) => {
+            const existing = prev.find((s) => s.userId === userId);
+            if (existing) {
+              return prev.map((s) => s.userId === userId ? { ...s, score: s.score + 10 } : s);
+            }
+            return [...prev, { userId, displayName: displayName ?? 'Player', score: 10 }];
+          });
+        }
+        setState('answered');
+      }
+      return isCorrect;
+    },
+    [state, questions, currentQuestionIndex, timer]
+  );
+
+  // Reveal without a correct answer (timer ran out)
+  const revealTimeUp = useCallback(() => {
+    if (state !== 'reading') return;
+    timer.stop();
+    setLastAnswer(null);
+    setLastCorrect(false);
+    setState('revealed');
+  }, [state, timer]);
+
   const revealAnswer = useCallback(() => {
     if (state !== 'answered') return;
     setState('revealed');
   }, [state]);
 
   const nextQuestion = useCallback(() => {
-    if (state !== 'answered' && state !== 'revealed') return;
+    if (state !== 'answered' && state !== 'revealed' && state !== 'reading') return;
 
     const nextIndex = currentQuestionIndex + 1;
 
@@ -139,6 +185,8 @@ export function useGameState(options: UseGameStateOptions = {}) {
     startGame,
     buzz,
     submitAnswer,
+    openAnswer,
+    revealTimeUp,
     revealAnswer,
     nextQuestion,
     endGame,

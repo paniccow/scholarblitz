@@ -8,6 +8,7 @@ import { GamePlayer } from '@/types/game';
 export type RealtimeEvent =
   | 'buzz'
   | 'answer'
+  | 'reveal'
   | 'next'
   | 'game_start'
   | 'game_end';
@@ -55,6 +56,7 @@ export function useRealtimeGame(roomCode: string) {
     const events: RealtimeEvent[] = [
       'buzz',
       'answer',
+      'reveal',
       'next',
       'game_start',
       'game_end',

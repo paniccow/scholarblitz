@@ -42,11 +42,11 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
       </div>
 
       {/* Question body */}
-      <div className="px-6 py-8 min-h-[160px] flex items-start">
-        <p className="text-lg leading-relaxed text-gray-900">
+      <div className="px-6 py-8 min-h-[180px] flex items-start">
+        <p className="text-xl leading-relaxed font-medium text-black">
           {displayedText}
           {isRevealing && revealedWordCount < words.length && (
-            <span className="inline-block w-0.5 h-5 ml-1 bg-indigo-500 animate-pulse align-text-bottom" />
+            <span className="inline-block w-0.5 h-6 ml-1 bg-indigo-500 animate-pulse align-text-bottom" />
           )}
         </p>
       </div>
