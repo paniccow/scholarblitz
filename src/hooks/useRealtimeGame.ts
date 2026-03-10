@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { GamePlayer } from '@/types/game';
@@ -25,7 +25,7 @@ export function useRealtimeGame(roomCode: string) {
   const [players, setPlayers] = useState<PresenceState[]>([]);
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const handlersRef = useRef<Map<RealtimeEvent, EventHandler[]>>(new Map());
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (!roomCode) return;

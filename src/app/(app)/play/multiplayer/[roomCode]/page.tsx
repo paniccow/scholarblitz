@@ -84,9 +84,9 @@ export default function MultiplayerGamePage({
     }
   }, [roomCode, user]);
 
-  // Track presence in lobby
+  // Track presence in lobby — only after session is loaded (so isHost is known)
   useEffect(() => {
-    if (!user || !profile || !realtime.channel) return;
+    if (!user || !profile || !realtime.channel || loading) return;
 
     realtime.trackPresence({
       userId: user.id,
@@ -94,7 +94,7 @@ export default function MultiplayerGamePage({
       isHost,
       joinedAt: new Date().toISOString(),
     });
-  }, [user, profile, realtime.channel, isHost]);
+  }, [user, profile, realtime.channel, isHost, loading]);
 
   // Listen for game events
   useEffect(() => {
